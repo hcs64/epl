@@ -238,6 +238,11 @@ public class Pad {
         client_connect_state = ClientConnectState.CONNECTING;
     }
 
+    public synchronized void disconnect() {
+        socket.disconnect();
+        client_connect_state = ClientConnectState.NO_CONNECTION;
+    }
+
 
     private synchronized void sendClientReady() throws PadException {
         if (client_connect_state != ClientConnectState.CONNECTING) {
@@ -343,11 +348,12 @@ public class Pad {
             client_text = server_text;
             client_rev = server_rev;
 
-            // process chat history
-            JSONArray chat_history = client_vars.getJSONArray("chatHistory");
-            for (int i = 0; i < chat_history.length(); i++) {
-                JSONObject chat_entry = chat_history.getJSONObject(i);
-                handleChat(chat_entry.getString("text"), chat_entry.getString("userId"), chat_entry.optString("userName", null), chat_entry.getLong("time"));
+            if (client_vars.has("chatHistory")) {
+                JSONArray chat_history = client_vars.getJSONArray("chatHistory");
+                for (int i = 0; i < chat_history.length(); i++) {
+                    JSONObject chat_entry = chat_history.getJSONObject(i);
+                    handleChat(chat_entry.getString("text"), chat_entry.getString("userId"), chat_entry.optString("userName", null), chat_entry.getLong("time"));
+                }
             }
 
             pending_changes = sent_changes = Changeset.identity(server_text.length());
@@ -475,6 +481,10 @@ public class Pad {
             String cs_str;
             String author;
 
+            // DEBUG
+            Changeset old_sent_changes = sent_changes;
+            Changeset old_pending_changes = pending_changes;
+
             try {
                 // This is the heart of the protocol, notation here is from
                 // the technical manual and Etherpad Lite's changesettracker.js
@@ -499,7 +509,7 @@ public class Pad {
                 // X' = f(B, X)
                 // var c2 = c
                 Changeset fXB = B;
-                Changeset X_prime = sent_changes;
+                Changeset X_prime;
 
                 // if (submittedChangeset) 
                 if (!sent_changes.isIdentity()) {
@@ -508,6 +518,9 @@ public class Pad {
                     X_prime = Changeset.follow(B, sent_changes, false);
                     // c2 = Changeset.follow(oldSubmittedChangeset, c, true, apool);
                     fXB = Changeset.follow(sent_changes, B, true);
+                } else {
+                    // this identity just needs to change to reflect the new length
+                    X_prime = Changeset.identity(B.newLen);
                 }
 
 
@@ -550,15 +563,26 @@ public class Pad {
 
                     has_new = true;
                 }
+            } catch (ChangesetException e) {
+                throw new PadException("NEW_CHANGES broke on "+data, e);
+            }
 
+            try {
                 // DEBUG: check out that all these follows seem to work as intended
-                String server_would_see = pending_changes.applyToText(server_text);
+                String server_would_see = pending_changes.applyToText(sent_changes.applyToText(server_text));
                 if (!server_would_see.equals(client_text)) {
                     throw new PadException("out of sync, server would see\n'" + server_would_see + "'\nclient sees\n'" + client_text + "'\n");
                 }
-
             } catch (ChangesetException e) {
-                throw new PadException("NEW_CHANGES broke", e);
+                System.out.println("old sent changes = " + old_sent_changes.explain());
+                System.out.println("old pending changes = " + old_pending_changes.explain());
+                try {
+                System.out.println("new changeset B=" + new Changeset(cs_str).explain());
+                } catch (ChangesetException e2) {}
+                System.out.println("sent changes = " + sent_changes.explain());
+                System.out.println("pending changes = " + pending_changes.explain());
+                System.out.println();
+                throw new PadException("broke when checking pendings on new CS "+data, e);
             }
 
         } else if ("ACCEPT_COMMIT".equals(collab_type)) {

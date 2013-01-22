@@ -704,6 +704,11 @@ public class Changeset {
         StringBuilder sb = new StringBuilder(original_string);
         int bank_cur = 0;
 
+        sb.append('\n');
+        sb.append(oldLen);
+        sb.append("->");
+        sb.append(newLen);
+
         for (OpIterator oi = opIterator(); oi.hasNext(); ) {
             Operation o = oi.next();
             sb.append('\n');

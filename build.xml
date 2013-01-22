@@ -1,0 +1,52 @@
+<project name="epl" default="compile">
+	<property name="src.dir"        value="src"/>
+    <property name="build.dir"      value="build"/>
+    <property name="classes.dir"    value="${build.dir}/classes"/>
+    <property name="lib.dir"        value="libs"/>
+
+    <property name="test.dir"       value="test"/>
+    <property name="test.build.dir" value="${test.dir}/build"/>
+
+    <path id="classpath">
+        <fileset dir="${lib.dir}" includes="*.jar"/>
+    </path>
+
+    <target name="clean">
+        <delete dir="${build.dir}"/>
+    </target>
+
+    <target name="compile">
+        <mkdir dir="${classes.dir}"/>
+        <javac
+            srcdir="${src.dir}"
+            destdir="${classes.dir}"
+            debug="true"
+            classpathref="classpath"
+            includeAntRuntime="false"
+        />
+    </target>
+
+    <path id="test-classpath">
+        <pathelement path="${classes.dir}"/>
+        <fileset dir="${lib.dir}" includes="*.jar"/>
+    </path>
+
+    <target name="test-compile" depends="compile">
+        <mkdir dir="${test.build.dir}"/>
+        <javac
+            srcdir="${test.dir}"
+            destdir="${test.build.dir}"
+            classpathref="test-classpath"
+            includeAntRuntime="false">
+        </javac>
+    </target>
+
+    <target name="test-run" depends="test-compile">
+        <java classname="EPLTest" fork="true">
+            <classpath>
+                <path refid="test-classpath"/>
+                <pathelement path="${test.build.dir}"/>
+            </classpath>
+        </java>
+    </target>
+</project>
