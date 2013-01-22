@@ -13,6 +13,7 @@
 
     <target name="clean">
         <delete dir="${build.dir}"/>
+        <delete dir="${test.build.dir}"/>
     </target>
 
     <target name="compile">
@@ -36,6 +37,7 @@
         <javac
             srcdir="${test.dir}"
             destdir="${test.build.dir}"
+            debug="true"
             classpathref="test-classpath"
             includeAntRuntime="false">
         </javac>

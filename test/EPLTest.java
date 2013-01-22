@@ -11,6 +11,7 @@ public class EPLTest {
         int max_send_delay;
         int max_recv_delay;
         int wait_loop_delay;
+        int iterations;
 
         Pad p;
 
@@ -37,7 +38,7 @@ public class EPLTest {
             try {
                 connect();
 
-                while (true) {
+                for (int i = 0; i < iterations; i++) {
                     boolean new_updates;
 
                     boolean is_sending, is_receiving;
@@ -79,7 +80,12 @@ public class EPLTest {
             } catch (PadException e) {
                 e.printStackTrace();
             } finally {
+                /*
+                try {
+                    p.update(true, true);
+                } catch (PadException e) {}
                 disconnect();
+                */
             }
         }
     }
@@ -96,6 +102,7 @@ public class EPLTest {
         test1.max_send_delay = 0;
         test1.max_recv_delay = 0;
         test1.wait_loop_delay = 30;
+        test1.iterations = 1000;
 
         t1.start();
 
@@ -108,12 +115,55 @@ public class EPLTest {
         test2.max_send_delay = 10;
         test2.max_recv_delay = 10;
         test2.wait_loop_delay = 30;
+        test2.iterations = 1000;
 
         t2.start();
 
+        while (t2.isAlive()) {
+            try {
+                t2.join();
+            } catch (InterruptedException e) {}
+        }
+
+        while (t1.isAlive()) {
+            try {
+                t1.join();
+            } catch (InterruptedException e) {}
+        }
+
         try {
-            t2.join();
-            t1.join();
+            test1.p.update(true, true);
+            test2.p.update(true, true);
+        } catch (PadException e) {
+            e.printStackTrace();
+        }
+
+        try {
+            Thread.sleep(500);
         } catch (InterruptedException e) {}
+
+        try {
+            test1.p.update(true, true);
+            test2.p.update(true, true);
+        } catch (PadException e) {
+            e.printStackTrace();
+        }
+
+
+        TextState ts1 = test1.p.getState();
+        TextState ts2 = test2.p.getState();
+
+        test1.p.disconnect();
+        test2.p.disconnect();
+
+        System.out.println("********");
+        System.out.println(ts1.client_text.substring(0, Math.min(100, ts1.client_text.length())));
+        if (ts1.client_text.equals(ts2.client_text)) {
+            System.out.println("client_texts are equal");
+        } else {
+            System.out.println("ERR: not equal");
+        }
+        System.out.println("********");
+
     }
 }
