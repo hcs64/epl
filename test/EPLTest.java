@@ -31,6 +31,7 @@ public class EPLTest {
         }
 
         public void run() {
+            String name = Thread.currentThread().getName();
             Random r = new Random();
             int send_delay = 0;
             int recv_delay = 0;
@@ -38,13 +39,19 @@ public class EPLTest {
             try {
                 connect();
 
+                while (!p.isConnected()) {
+                    try {
+                        Thread.sleep(wait_loop_delay);
+                    } catch (InterruptedException e) {}
+                }
+
                 for (int i = 0; i < iterations; i++) {
                     boolean new_updates;
 
                     boolean is_sending, is_receiving;
 
                     is_sending = (send_delay == 0);
-                    is_receiving= (recv_delay == 0);
+                    is_receiving = (recv_delay == 0);
                     new_updates = p.update(is_sending, is_receiving);
 
                     if (send_delay == 0) {
@@ -67,8 +74,12 @@ public class EPLTest {
                     }
 
                     if (p.isConnected()) {
-                        p.appendText(String.valueOf(Math.random()));
-                        p.appendText("\n");
+                        if (r.nextBoolean()) {
+                            p.appendText("e"+name+String.valueOf(Math.random()));
+                            p.appendText("\n");
+                        } else {
+                            p.prependText("p"+name+String.valueOf(Math.random()+"\n"));
+                        }
                     }
 
                     try {
@@ -92,73 +103,82 @@ public class EPLTest {
 
     public static void main(String args[]) {
         System.out.println("Hello world");
+        final int test_count = 4;
 
-        Test test1 = new Test();
-        Thread t1 = new Thread(test1, "test1");
+        Test tests[] = new Test[test_count];
+        Thread threads[] = new Thread[test_count];
 
-        try {
-            test1.pad_url = new URL("http://10.0.2.15:9001/");
-        } catch (MalformedURLException e) {}
-        test1.max_send_delay = 0;
-        test1.max_recv_delay = 0;
-        test1.wait_loop_delay = 30;
-        test1.iterations = 1000;
+        for (int i = 0; i < test_count; i++) {
+            Test t = tests[i] = new Test();
+            threads[i] = new Thread(t, "test"+i);
 
-        t1.start();
-
-        Test test2 = new Test();
-        Thread t2 = new Thread(test2, "test2");
-
-        try {
-            test2.pad_url = new URL("http://10.0.2.15:9001/");
-        } catch (MalformedURLException e) {}
-        test2.max_send_delay = 10;
-        test2.max_recv_delay = 10;
-        test2.wait_loop_delay = 30;
-        test2.iterations = 1000;
-
-        t2.start();
-
-        while (t2.isAlive()) {
             try {
-                t2.join();
-            } catch (InterruptedException e) {}
+                t.pad_url = new URL("http://10.0.2.15:9001/");
+            } catch (MalformedURLException e) {}
+            t.max_send_delay = 5;
+            t.max_recv_delay = 5;
+            t.wait_loop_delay = 30;
+            t.iterations = 1000;
+
+
         }
 
-        while (t1.isAlive()) {
+        for (int i = 0; i < test_count; i++) {
+            threads[i].start();
+        }
+
+        for (int i = 0; i < test_count; i++) {
+            Thread thread = threads[i];
+            while (thread.isAlive()) {
+                try {
+                    thread.join();
+                } catch (InterruptedException e) {}
+            }
+        }
+
+        // flush anything we may have delayed
+        for (int i = 0; i < test_count; i++) {
+            Test t = tests[i];
             try {
-                t1.join();
-            } catch (InterruptedException e) {}
+                t.p.update(true, true);
+            } catch (PadException e) {
+                e.printStackTrace();
+            }
         }
 
+        // give everyone one last chance to sync up
         try {
-            test1.p.update(true, true);
-            test2.p.update(true, true);
-        } catch (PadException e) {
-            e.printStackTrace();
-        }
-
-        try {
-            Thread.sleep(500);
+            Thread.sleep(10000);
         } catch (InterruptedException e) {}
 
-        try {
-            test1.p.update(true, true);
-            test2.p.update(true, true);
-        } catch (PadException e) {
-            e.printStackTrace();
+
+        for (int i = 0; i < test_count; i++) {
+            Test t = tests[i];
+            try {
+                t.p.update(true, true);
+            } catch (PadException e) {
+                e.printStackTrace();
+            }
         }
 
+        TextState ts0 = tests[0].p.getState();
 
-        TextState ts1 = test1.p.getState();
-        TextState ts2 = test2.p.getState();
+        boolean tests_ok = true;
 
-        test1.p.disconnect();
-        test2.p.disconnect();
+        for (int i = 1; i < test_count; i++) {
+            TextState ts = tests[i].p.getState();
+            if (ts0.client_text.equals(ts.client_text)) {
+                // OK
+            } else {
+                tests_ok = false;
+            }
+            
+            tests[i].p.disconnect();
+        }
 
         System.out.println("********");
-        System.out.println(ts1.client_text.substring(0, Math.min(100, ts1.client_text.length())));
-        if (ts1.client_text.equals(ts2.client_text)) {
+        System.out.println(ts0.client_text.substring(0, Math.min(100, ts0.client_text.length())));
+        if (tests_ok) {
             System.out.println("client_texts are equal");
         } else {
             System.out.println("ERR: not equal");

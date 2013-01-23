@@ -860,6 +860,14 @@ public class Pad {
         }
     }
 
+    public void prependText(String new_s) throws PadException {
+        try {
+            makeChangeInternal(Changeset.simpleEdit(client_text, 0, 0, new_s));
+        } catch (ChangesetException e) {
+            throw new PadException("error assembling or applying prepend changeset", e);
+        }
+    }
+
     // returns new marker index i, i and i+1 are markers for the appended text (i is a 'before' marker, i+1 is after)
     public int prependTextAndMark(String new_s) throws PadException {
         try {
