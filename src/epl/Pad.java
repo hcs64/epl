@@ -1,6 +1,5 @@
 package epl;
 
-import io.socket.*;
 import org.json.*;
 import java.util.Iterator;
 import java.util.ArrayList;
@@ -10,29 +9,12 @@ import java.util.LinkedList;
 import java.io.IOException;
 import java.net.URL;
 import java.net.MalformedURLException;
-import java.net.Socket;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.BufferedReader;
-import java.io.OutputStream;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 // class for talking to an Etherpad Lite server about a particular pad
 
 public class Pad {
-    // client states
-    enum ClientConnectState {
-        NO_CONNECTION,
-        GETTING_SESSION_TOKEN,
-        GOT_SESSION_TOKEN,
-        CONNECTING,
-        SENT_CLIENT_READY,
-        GOT_VARS,
-        NORMAL, // fully connected, our client has the initial text
-    }
-    private volatile ClientConnectState client_connect_state;
-
     static final Pattern cursor_chat_regex = Pattern.compile("!cursor!(\\d+)(-(\\d+))?");
 
     // following the documentation (Etherpad and EasySync Technical Manual):
@@ -59,7 +41,8 @@ public class Pad {
 
     HashMap<String, Avatar> user_avatars;
 
-    private volatile JSONObject client_vars = null; // initial state from the server
+    private volatile JSONObject client_vars; // initial state from the server
+    private boolean client_vars_new;
 
     private URL url;
     private String session_token;
@@ -68,7 +51,7 @@ public class Pad {
     private String user_id;
     private String pad_id;
 
-    private SocketIO socket = null;
+    private PadConnection connection;
 
     public Pad(
         URL url,
@@ -89,13 +72,14 @@ public class Pad {
         this.pad_id = pad_id;
         this.session_token = session_token;
 
-        client_connect_state = ClientConnectState.NO_CONNECTION;
-
         server_text = null;
         server_rev = -1;
         server_time_offset = 0;
         client_text = null;
         client_rev = -1;
+
+        client_vars = null;
+        client_vars_new = false;
 
         sent_changes = null;
         pending_changes = null;
@@ -105,6 +89,15 @@ public class Pad {
         markers = new ArrayList<Marker> ();
 
         user_avatars = new HashMap<String, Avatar> ();
+    }
+
+    public synchronized void connect() throws IOException, MalformedURLException, PadException {
+        if (session_token == null) {
+            session_token = PadConnection.getSessionToken(url);
+        }
+
+        connection = new PadConnection(this);
+        connection.connect(url, session_token);
     }
 
     // adapted from Etherpad Lite's JS
@@ -121,39 +114,51 @@ public class Pad {
         return randomstring.toString();
     }
 
-
-    public static String getSessionToken(URL url) throws IOException, MalformedURLException, PadException {
-        // a really dumb HTTP client so Sun's HttpURLConnection doesn't eat the Set-Cookie
-        final String set_cookie = "Set-Cookie: ";
-        Socket http_socket = new Socket(url.getHost(), url.getPort());
-
-        OutputStream http_out = http_socket.getOutputStream();
-        byte[] http_req = "GET / HTTP/1.0\r\n\r\n".getBytes();
-        http_out.write(http_req);
-        http_out.flush();
-
-        InputStream http_in_stream = http_socket.getInputStream();
-        InputStreamReader http_in_reader = new InputStreamReader(http_in_stream);
-        BufferedReader http_bufreader = new BufferedReader(http_in_reader);
-        String line;
-
-        while ((line = http_bufreader.readLine()) != null) {
-            if (line.startsWith(set_cookie)) {
-                String[] entries = line.substring(set_cookie.length()).split("; ");
-                for (String entry : entries) {
-                    String[] keyval = entry.split("=");
-                    if (keyval.length == 2 && keyval[0].equals("express_sid")) {
-                        return entry;
-                    }
-                }
-            }
+    void onConnect() {
+        try {
+            sendClientReady();
+        } catch (PadException e) {
+            e.printStackTrace();
         }
+    }
 
-        throw new PadException("no express_sid found");
+    void onDisconnect() {
+        // TODO: attempt reconnect
+        connection = null;
+    }
+
+    void onMessage(JSONObject json) {
+        try {
+            handleIncomingMessage(json);
+        } catch (PadException e) {
+            // TODO real error handling
+            e.printStackTrace();
+        }
+    }
+
+    public synchronized void disconnect() {
+        connection.disconnect();
+    }
+
+    public synchronized boolean isConnected() {
+        return (connection != null && connection.isConnected() && client_vars != null);
+    }
+
+    public synchronized boolean isConnecting() {
+        return (connection != null && connection.isConnecting()) || (connection != null && connection.isConnected() && client_vars == null);
     }
 
     private void handleIncomingMessage(JSONObject json) throws PadException {
         String type;
+
+        if (json.has("disconnect")) {
+            String cause = "UNKNOWN";
+            try {
+                cause = json.getString("disconnect");
+            } catch (JSONException e) {}
+
+            throw new PadException("got disconnect request with cause " + cause);
+        }
         
         try {
             type = json.getString("type");
@@ -177,78 +182,7 @@ public class Pad {
     }
 
 
-    public synchronized void connect() throws IOException, MalformedURLException, PadException {
-        if (client_connect_state != ClientConnectState.NO_CONNECTION) {
-            throw new PadException("can't connect again");
-        }
-
-        socket = new SocketIO(url);
-
-        client_connect_state = ClientConnectState.GETTING_SESSION_TOKEN;
-        if (session_token == null) {
-            session_token = getSessionToken(url);
-        }
-        client_connect_state = ClientConnectState.GOT_SESSION_TOKEN;
-        socket.addHeader("Cookie", session_token);
-
-        socket.connect(new IOCallback() {
-            @Override
-            public void onMessage(JSONObject json, IOAcknowledge ack) {
-                try {
-                    handleIncomingMessage(json);
-                } catch (PadException e) {
-                    e.printStackTrace();
-                }
-            }
-
-            @Override
-            public void onMessage(String data, IOAcknowledge ack) {
-                System.out.println("Server sent string: " + data);
-            }
-
-            @Override
-            public void onError(SocketIOException socketIOException) {
-                System.out.println("an Error occurred");
-                socketIOException.printStackTrace();
-            }
-
-            @Override
-            public void onDisconnect() {
-                System.out.println("Connection terminated.");
-                markDisconnected();
-            }
-
-            @Override
-            public void onConnect() {
-                System.out.println("Connection established.");
-
-                try {
-                    sendClientReady();
-                } catch (PadException e) {
-                    e.printStackTrace();
-                }
-            }
-
-            @Override
-            public void on(String event, IOAcknowledge ack, Object... args) {
-                System.out.println("Server triggered event '" + event + "'");
-            }
-        });
-
-        client_connect_state = ClientConnectState.CONNECTING;
-    }
-
-    public synchronized void disconnect() {
-        socket.disconnect();
-        client_connect_state = ClientConnectState.NO_CONNECTION;
-    }
-
-
     private synchronized void sendClientReady() throws PadException {
-        if (client_connect_state != ClientConnectState.CONNECTING) {
-            throw new PadException("sendClientReady in unexpected state "+client_connect_state);
-        }
-
         HashMap client_ready_req = new HashMap<String, Object>() {{
             put("component", "pad");
             put("type", "CLIENT_READY");
@@ -261,81 +195,13 @@ public class Pad {
 
         JSONObject client_ready_json = new JSONObject(client_ready_req);
 
-        socket.send(client_ready_json);
-
-        client_connect_state = ClientConnectState.SENT_CLIENT_READY;
-    }
-
-    private synchronized void markDisconnected() {
-        client_connect_state = ClientConnectState.NO_CONNECTION;
-        notifyAll();
-    }
-
-    public void assertConnectionOK() throws PadException {
-        ClientConnectState ccs = client_connect_state;
-
-        if (ccs != ClientConnectState.NORMAL) {
-            throw new PadException("connection is in bad state " + ccs);
-        }
-    }
-
-    public boolean isConnecting() {
-        switch (client_connect_state) {
-        case NO_CONNECTION:
-            return false;
-        case GETTING_SESSION_TOKEN:
-        case GOT_SESSION_TOKEN:
-        case CONNECTING:
-        case SENT_CLIENT_READY:
-            return true;
-        case GOT_VARS:
-        case NORMAL:
-            // these are considered "connected"
-            return false;
-        }
-
-        return false;
-    }
-
-    public boolean isConnected() {
-        switch (client_connect_state) {
-        case NO_CONNECTION:
-        case GETTING_SESSION_TOKEN:
-        case GOT_SESSION_TOKEN:
-        case CONNECTING:
-        case SENT_CLIENT_READY:
-            return false;
-        case GOT_VARS:
-        case NORMAL:
-            return true;
-        }
-
-        return false;
-    }
-
-    public boolean isDisconnected() {
-        switch (client_connect_state) {
-        case NO_CONNECTION:
-            return true;
-        case GETTING_SESSION_TOKEN:
-        case GOT_SESSION_TOKEN:
-        case CONNECTING:
-        case SENT_CLIENT_READY:
-        case GOT_VARS:
-        case NORMAL:
-            return false;
-        }
-
-        return false;
+        connection.send(client_ready_json);
     }
 
     private synchronized void setClientVars(JSONObject json) throws PadException {
-        if (client_connect_state != ClientConnectState.SENT_CLIENT_READY) {
-            throw new PadException("setClientVars in unexpected state "+client_connect_state);
-        }
-
         try {
             client_vars = json.getJSONObject("data");
+            client_vars_new = true;
 
             server_time_offset = client_vars.getLong("serverTimestamp") - System.currentTimeMillis();
             user_id = client_vars.getString("userId");
@@ -357,18 +223,12 @@ public class Pad {
             }
 
             pending_changes = sent_changes = Changeset.identity(server_text.length());
-
-            client_connect_state = ClientConnectState.GOT_VARS;
         } catch (JSONException e) {
             throw new PadException("exception getting CLIENT_VARS data", e);
         }
     }
 
     private synchronized void queueCollabRoom(JSONObject json) throws PadException {
-        if (!isConnected()) {
-            throw new PadException("queueCollabRoom in unexpected state "+client_connect_state);
-        }
-
         collabroom_messages.add(json);
     }
 
@@ -377,16 +237,17 @@ public class Pad {
     public synchronized boolean update(boolean is_sending, boolean is_receiving) throws PadException {
         boolean has_new = false;
 
-        if (!isConnected()) {
+        if (client_vars == null) {
+            // not yet connected
             return false;
         }
 
-        if (client_connect_state == ClientConnectState.GOT_VARS) {
-            has_new = true;
-            client_connect_state = ClientConnectState.NORMAL;
-        }
-
         if (is_receiving) {
+            if (client_vars_new) {
+                has_new = true;
+                client_vars_new = false;
+            }
+
             while (!collabroom_messages.isEmpty()) {
                 JSONObject json = collabroom_messages.poll();
                 JSONObject data;
@@ -450,7 +311,7 @@ public class Pad {
                 throw new PadException("failed building USER_CHANGES JSON", e);
             }
 
-            socket.send(null, user_changes);
+            connection.send(user_changes);
 
             sent_changes = pending_changes;
             pending_changes = Changeset.identity(sent_changes.newLen);
@@ -937,7 +798,7 @@ public class Pad {
             throw new PadException("failed building CHAT_MESSAGE JSON", e);
         }
 
-        socket.send(null, chat_message);
+        connection.send(chat_message);
     }
 
     // ********* private changeset application

@@ -6,6 +6,13 @@ import java.io.IOException;
 import java.util.Random;
 
 public class EPLTest {
+    static final String pad_url = "http://10.0.2.15:9001/";
+
+    public static void main(String args[]) {
+        doStress();
+        //doDisco();
+    }
+
     static class Test implements Runnable {
         URL pad_url;
         int max_send_delay;
@@ -39,11 +46,13 @@ public class EPLTest {
             try {
                 connect();
 
-                while (!p.isConnected()) {
+                while (p.isConnecting()) {
                     try {
                         Thread.sleep(wait_loop_delay);
                     } catch (InterruptedException e) {}
                 }
+
+                if (!p.isConnected()) return;
 
                 for (int i = 0; i < iterations; i++) {
                     boolean new_updates;
@@ -101,8 +110,7 @@ public class EPLTest {
         }
     }
 
-    public static void main(String args[]) {
-        System.out.println("Hello world");
+    static void doStress() {
         final int test_count = 4;
 
         Test tests[] = new Test[test_count];
@@ -113,7 +121,7 @@ public class EPLTest {
             threads[i] = new Thread(t, "test"+i);
 
             try {
-                t.pad_url = new URL("http://10.0.2.15:9001/");
+                t.pad_url = new URL(pad_url);
             } catch (MalformedURLException e) {}
             t.max_send_delay = 5;
             t.max_recv_delay = 5;
@@ -136,6 +144,8 @@ public class EPLTest {
             }
         }
 
+        System.err.println("joined!");
+
         // flush anything we may have delayed
         for (int i = 0; i < test_count; i++) {
             Test t = tests[i];
@@ -148,7 +158,7 @@ public class EPLTest {
 
         // give everyone one last chance to sync up
         try {
-            Thread.sleep(10000);
+            Thread.sleep(1000);
         } catch (InterruptedException e) {}
 
 
@@ -160,6 +170,8 @@ public class EPLTest {
                 e.printStackTrace();
             }
         }
+
+        System.err.println("flushed!");
 
         TextState ts0 = tests[0].p.getState();
 
@@ -175,6 +187,7 @@ public class EPLTest {
             
             tests[i].p.disconnect();
         }
+        tests[0].p.disconnect();
 
         System.out.println("********");
         System.out.println(ts0.client_text.substring(0, Math.min(100, ts0.client_text.length())));
@@ -184,6 +197,27 @@ public class EPLTest {
             System.out.println("ERR: not equal");
         }
         System.out.println("********");
-
     }
+
+    static void doDisco() {
+        try {
+        Pad p = new Pad(
+                new URL(pad_url),
+                "",     // client_id
+                null,   // token
+                "stresspad",
+                null);  // session_token
+
+        p.connect();
+        while (p.isConnecting()) {
+            Thread.sleep(100);
+        }
+
+        p.makeChange(0,100,"");
+        p.update(true, true);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
 }
