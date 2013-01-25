@@ -8,11 +8,12 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.io.IOException;
 import java.net.URL;
-import java.net.MalformedURLException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 // class for talking to an Etherpad Lite server about a particular pad
+// I'm attempting to be centered around the client text state, ideally
+// it should be able to run fine offline
 
 public class Pad {
     static final Pattern cursor_chat_regex = Pattern.compile("!cursor!(\\d+)(-(\\d+))?");
@@ -72,11 +73,11 @@ public class Pad {
         this.pad_id = pad_id;
         this.session_token = session_token;
 
-        server_text = null;
-        server_rev = -1;
+        server_text = "\n";
+        server_rev = 0;
         server_time_offset = 0;
-        client_text = null;
-        client_rev = -1;
+        client_text = "\n";
+        client_rev = 0;
 
         client_vars = null;
         client_vars_new = false;
@@ -91,9 +92,13 @@ public class Pad {
         user_avatars = new HashMap<String, Avatar> ();
     }
 
-    public synchronized void connect() throws IOException, MalformedURLException, PadException {
+    public synchronized void connect() throws IOException, PadException {
         if (session_token == null) {
             session_token = PadConnection.getSessionToken(url);
+        }
+
+        if (connection != null) {
+            throw new PadException("already have a connection!");
         }
 
         connection = new PadConnection(this);
@@ -123,8 +128,10 @@ public class Pad {
     }
 
     void onDisconnect() {
-        // TODO: attempt reconnect
+        System.out.println("onDisconnect");
         connection = null;
+        client_vars = null;
+        client_vars_new = false;
     }
 
     void onMessage(JSONObject json) {
@@ -137,7 +144,12 @@ public class Pad {
     }
 
     public synchronized void disconnect() {
-        connection.disconnect();
+        // TODO: sent changes must be considered lost, merge back into pending
+        // Though we might want to keep sent changes to check the resync diffs for whether
+        // the server did eventually get our last transmission
+        if (connection != null) {
+            connection.disconnect();
+        }
     }
 
     public synchronized boolean isConnected() {
@@ -183,6 +195,10 @@ public class Pad {
 
 
     private synchronized void sendClientReady() throws PadException {
+        if (connection == null) {
+            throw new PadException("no connection to send on");
+        }
+
         HashMap client_ready_req = new HashMap<String, Object>() {{
             put("component", "pad");
             put("type", "CLIENT_READY");
@@ -202,14 +218,28 @@ public class Pad {
         try {
             client_vars = json.getJSONObject("data");
             client_vars_new = true;
-
             server_time_offset = client_vars.getLong("serverTimestamp") - System.currentTimeMillis();
             user_id = client_vars.getString("userId");
 
             JSONObject collab_client_vars = client_vars.getJSONObject("collab_client_vars");
 
+            long old_server_rev = server_rev;
+            String old_server_text = server_text;
+
             server_text = collab_client_vars.getJSONObject("initialAttributedText").getString("text");
             server_rev = collab_client_vars.getLong("rev");
+
+            if (pending_changes != null && !pending_changes.isIdentity()) {
+                // TODO: handle merging in offline changes
+                // client should be able to get an update from the server of what has changed
+                // since the previous server_rev
+
+                // for now we have to abort if we have local changes that
+                // we can't relate to the current server_rev
+                if (server_rev != old_server_rev) {
+                    throw new PadException("out of date: " + server_rev + " != " + old_server_rev);
+                }
+            }
 
             client_text = server_text;
             client_rev = server_rev;
@@ -232,18 +262,12 @@ public class Pad {
         collabroom_messages.add(json);
     }
 
-    // most of the action is in here
     // returns true if there is something new for the client
     public synchronized boolean update(boolean is_sending, boolean is_receiving) throws PadException {
         boolean has_new = false;
 
-        if (client_vars == null) {
-            // not yet connected
-            return false;
-        }
-
         if (is_receiving) {
-            if (client_vars_new) {
+            if (client_vars != null && client_vars_new) {
                 has_new = true;
                 client_vars_new = false;
             }
@@ -262,6 +286,14 @@ public class Pad {
 
                 if (handleCollabRoom(data, collab_type)) {
                     has_new = true;
+                }
+            }
+
+            if (connection == null) {
+                try {
+                    connect();
+                } catch (IOException e) {
+                    throw new PadException("failed on reconnect attempt", e);
                 }
             }
         }
@@ -288,6 +320,10 @@ public class Pad {
     // only call when synchronized
     // return true if anything was actually sent
     private boolean commitChanges() throws PadException {
+        if (connection == null || !connection.isConnected()) {
+            return false;
+        }
+
         if (sent_changes.isIdentity() && !pending_changes.isIdentity()) {
             JSONObject user_changes;
 
@@ -777,6 +813,10 @@ public class Pad {
     }
 
     public synchronized void broadcastCursor(int start_pos, int end_pos) throws PadException {
+        if (connection == null) {
+            return;
+        }
+
         JSONObject chat_message;
         final StringBuilder text_sb = new StringBuilder("!cursor!");
         text_sb.append(start_pos);
@@ -808,6 +848,7 @@ public class Pad {
         pending_changes = Changeset.compose(pending_changes, changeset);
 
         client_text = changeset.applyToText(client_text);
+        client_rev = -1;
         translateMarkers(changeset);
 
         for (Iterator<Avatar> i = user_avatars.values().iterator(); i.hasNext(); ) {
