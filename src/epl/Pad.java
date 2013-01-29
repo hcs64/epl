@@ -160,6 +160,14 @@ public class Pad {
         return (connection != null && connection.isConnecting()) || (connection != null && connection.isConnected() && client_vars == null);
     }
 
+    public synchronized boolean isAwaitingAck() {
+        return (sent_changes != null && !sent_changes.isIdentity());
+    }
+
+    public synchronized boolean isSendPending() {
+        return (pending_changes != null && !pending_changes.isIdentity());
+    }
+
     private void handleIncomingMessage(JSONObject json) throws PadException {
         String type;
 
