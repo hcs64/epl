@@ -137,8 +137,8 @@ public class Changeset {
         appendNum(cs, oldLen);
         appendSignedNum(cs, newLen-oldLen);
         cs.append(ops);
+        cs.append('$');
         if (charBank != null && charBank.length() > 0) {
-            cs.append('$');
             cs.append(charBank);
         }
 
