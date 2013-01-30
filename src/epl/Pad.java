@@ -92,6 +92,11 @@ public class Pad {
         user_avatars = new HashMap<String, Avatar> ();
     }
 
+    // shorthand constructor for an anonymous connection
+    public Pad( URL url, String pad_id ) {
+        this(url, "", null, pad_id, null);
+    }
+
     public synchronized void connect() throws IOException, PadException {
         if (session_token == null) {
             session_token = PadConnection.getSessionToken(url);
@@ -332,7 +337,8 @@ public class Pad {
             return false;
         }
 
-        if (sent_changes.isIdentity() && !pending_changes.isIdentity()) {
+        if ((sent_changes == null || sent_changes.isIdentity()) &&
+         (pending_changes != null && !pending_changes.isIdentity())) {
             JSONObject user_changes;
 
             try {

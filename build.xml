@@ -2,6 +2,7 @@
 	<property name="src.dir"        value="src"/>
     <property name="build.dir"      value="build"/>
     <property name="classes.dir"    value="${build.dir}/classes"/>
+    <property name="jar.dir"        value="${build.dir}/jar"/>
     <property name="lib.dir"        value="libs"/>
 
     <property name="test.dir"       value="test"/>
@@ -25,6 +26,13 @@
             classpathref="classpath"
             includeAntRuntime="false"
         />
+    </target>
+
+    <target name="jar" depends="compile">
+        <mkdir dir="${jar.dir}"/>
+        <jar jarfile="${jar.dir}/epl.jar">
+            <fileset dir="${classes.dir}"/>
+        </jar>
     </target>
 
     <path id="test-classpath">
