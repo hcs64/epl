@@ -3,13 +3,17 @@ package epl;
 import io.socket.*;
 import org.json.*;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.net.MalformedURLException;
+import java.net.HttpURLConnection;
 import java.net.Socket;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.BufferedReader;
 import java.io.OutputStream;
+import java.util.logging.Logger;
+import java.util.logging.Handler;
 
 // handles the lifetime of a single connection to the Etherpad server
 
@@ -21,8 +25,6 @@ public class PadConnection {
     public PadConnection(Pad pad) {
         this.pad = pad;
         client_connect_state = ClientConnectState.NO_CONNECTION;
-
-        SocketIO.getConnectionLogger().setLevel(java.util.logging.Level.WARNING);
 
         socket = null;
     }
@@ -76,12 +78,28 @@ public class PadConnection {
         return false;
     }
 
+    static Logger socket_logger = null;
+
     public void connect(URL url, String session_token) throws IOException, PadException {
+        connect(url, session_token, null);
+    }
+
+    public void connect(URL url, String session_token, Handler log_handler) throws IOException, PadException {
         if (client_connect_state != ClientConnectState.NO_CONNECTION) {
             throw new PadException("can only connect once");
         }
 
         socket = new SocketIO(url);
+
+        if (socket_logger == null)
+        {
+            socket_logger = SocketIO.getConnectionLogger();
+            socket_logger.setUseParentHandlers(false);
+        }
+
+        if (log_handler != null) {
+            socket_logger.addHandler(log_handler);
+        }
 
         socket.addHeader("Cookie", session_token);
 
@@ -133,6 +151,7 @@ public class PadConnection {
         });
 
         client_connect_state = ClientConnectState.CONNECTING;
+
     }
 
     public void disconnect() {
@@ -183,6 +202,29 @@ public class PadConnection {
         }
 
         throw new PadException("no express_sid found");
+    }
+
+    public static void sendClientError(URL url, String session_token, String err_msg) {
+        try {
+            HttpURLConnection con = (HttpURLConnection)url.openConnection();
+            con.setDoOutput(true);
+            con.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+            con.setRequestProperty("Cookie", "express_sid="+session_token);
+            OutputStream os = con.getOutputStream();
+
+            os.write("errorInfo=".getBytes("UTF-8"));
+            os.write(URLEncoder.encode(err_msg, "UTF-8").getBytes("UTF-8"));
+            os.close();
+
+            InputStream is = con.getInputStream();
+            byte[] buffer = new byte[1024];
+            while(is.read(buffer) > 0) {
+            }
+            is.close();
+
+        } catch (IOException e) {
+            e.printStackTrace();
+            }
     }
 
 }

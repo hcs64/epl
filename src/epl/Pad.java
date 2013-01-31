@@ -7,15 +7,37 @@ import java.util.Queue;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.io.IOException;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 import java.net.URL;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.logging.*;
 
 // class for talking to an Etherpad Lite server about a particular pad
 // I'm attempting to be centered around the client text state, ideally
 // it should be able to run fine offline
 
 public class Pad {
+
+    class PadLogHandler extends Handler {
+        XMLFormatter formatter = null;
+        URL err_url;
+        String sid;
+        public PadLogHandler(URL err_url, String sid) {
+            this.err_url = err_url;
+            this.sid = sid;
+            formatter = new XMLFormatter();
+        }
+        public void close() { formatter = null; }
+        public void flush() { } // no buffering
+        public void publish(LogRecord r) {
+            if (r != null && connection != null) {
+                connection.sendClientError(err_url, sid, formatter.format(r));
+            }
+        }
+    }
+
     static final Pattern cursor_chat_regex = Pattern.compile("!cursor!(\\d+)(-(\\d+))?");
 
     // following the documentation (Etherpad and EasySync Technical Manual):
@@ -52,6 +74,8 @@ public class Pad {
     private String user_id;
     private String pad_id;
 
+    private Logger logger;
+
     private PadConnection connection;
 
     public Pad(
@@ -84,6 +108,7 @@ public class Pad {
 
         sent_changes = null;
         pending_changes = null;
+        logger = null;
 
         collabroom_messages = new LinkedList<JSONObject> ();
 
@@ -107,7 +132,28 @@ public class Pad {
         }
 
         connection = new PadConnection(this);
-        connection.connect(url, session_token);
+
+        URL err_url;
+
+        {
+            int port = url.getPort();
+            if (port == -1) {
+                port = url.getDefaultPort();
+            }
+            err_url = new URL(url.getProtocol(), url.getHost(), port, "/jserror");
+        }
+        MemoryHandler log_handler = new MemoryHandler(new PadLogHandler(err_url, session_token), 1000, Level.WARNING);
+        logger = Logger.getAnonymousLogger();
+        logger.addHandler(log_handler);
+        connection.connect(url, session_token, log_handler);
+    }
+
+    public synchronized void logThrowableToServer(Throwable e) {
+        ByteArrayOutputStream os = new ByteArrayOutputStream();
+        PrintStream ps = new PrintStream(os, true);
+        e.printStackTrace(ps);
+
+        logger.severe(os.toString());
     }
 
     // adapted from Etherpad Lite's JS
