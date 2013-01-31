@@ -21,6 +21,9 @@ public class PadConnection {
     public PadConnection(Pad pad) {
         this.pad = pad;
         client_connect_state = ClientConnectState.NO_CONNECTION;
+
+        SocketIO.getConnectionLogger().setLevel(java.util.logging.Level.WARNING);
+
         socket = null;
     }
 

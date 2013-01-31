@@ -1,3 +1,0 @@
-[submodule "external/socketio"]
-	path = external/socketio
-	url = git://github.com/hcs64/socket.io-java-client.git
