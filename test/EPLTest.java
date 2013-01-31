@@ -25,10 +25,7 @@ public class EPLTest {
         private void connect() throws IOException, PadException {
             p = new Pad(
                 pad_url,
-                "",     // client_id
-                null,   // token
-                "stresspad",
-                null);  // session_token
+                "stresspad");  // session_token
 
             p.connect();
         }
@@ -77,8 +74,8 @@ public class EPLTest {
 
                     if (new_updates) {
                         TextState ts = p.getState();
-                        System.out.println("Server rev: " + ts.server_rev);
-                        System.out.println("Client rev: " + ts.client_rev);
+                        //System.out.println("Server rev: " + ts.server_rev);
+                        //System.out.println("Client rev: " + ts.client_rev);
                         //System.out.println("Client text: " + ts.client_text);
                     }
 
@@ -203,10 +200,7 @@ public class EPLTest {
         try {
         Pad p = new Pad(
                 new URL(pad_url),
-                "",     // client_id
-                null,   // token
-                "stresspad",
-                null);  // session_token
+                "stresspad");
 
         p.connect();
         while (p.isConnecting()) {
