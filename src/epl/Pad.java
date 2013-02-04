@@ -79,6 +79,7 @@ public class Pad {
     private Logger logger;
 
     private PadConnection connection;
+    private boolean failed_connecting = false;
 
     public Pad(
         URL url,
@@ -127,6 +128,10 @@ public class Pad {
     }
 
     public synchronized void connect() throws IOException, PadException {
+        if (failed_connecting) {
+            throw new PadException("already tried and failed to connect");
+        }
+
         if (session_token == null) {
             session_token = PadConnection.getSessionToken(url);
         }
@@ -182,11 +187,16 @@ public class Pad {
         }
     }
 
-    void onDisconnect() {
-        System.out.println("onDisconnect");
+    void onDisconnect(boolean was_connecting) {
+        System.err.println("onDisconnect("+was_connecting+")");
         connection = null;
         client_vars = null;
         client_vars_new = false;
+        session_token = null;
+
+        if (was_connecting) {
+            failed_connecting = true;
+        }
     }
 
     void onMessage(JSONObject json) {

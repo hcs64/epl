@@ -121,15 +121,21 @@ public class PadConnection {
             @Override
             public void onError(SocketIOException socketIOException) {
                 System.out.println("an Error occurred");
-                socketIOException.printStackTrace();
+
+                boolean was_connecting = isConnecting();
+
+                markDisconnected();
+                pad.onDisconnect(was_connecting);
             }
 
             @Override
             public void onDisconnect() {
                 System.out.println("Connection terminated.");
 
+                boolean was_connecting = isConnecting();
+
                 markDisconnected();
-                pad.onDisconnect();
+                pad.onDisconnect(was_connecting);
             }
 
             @Override
