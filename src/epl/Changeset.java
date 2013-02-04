@@ -407,7 +407,7 @@ public class Changeset {
 
         // if we got here we're retained
         if (new_pos == old_pos) return marker;
-        return new Marker(marker.pos + new_pos - old_pos, marker.before, true);
+        return new Marker(marker.pos + new_pos - old_pos, marker.before, marker.valid);
     }
 
     public Marker afterThisEdit() {

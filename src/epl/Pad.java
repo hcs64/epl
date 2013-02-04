@@ -715,14 +715,14 @@ public class Pad {
 
     // ********** Marker manipulation
     // 
-    public int registerMarker(int pos, boolean before, boolean valid) throws PadException {
+    public int registerMarker(int pos, boolean before, boolean valid) {
         synchronized(markers) {
             markers.add(new Marker(pos, before, valid));
             return markers.size()-1;
         }
     }
 
-    public void reRegisterMarker(int idx, int pos, boolean before, boolean valid) throws PadException {
+    public void reRegisterMarker(int idx, int pos, boolean before, boolean valid) {
         synchronized(markers) {
             markers.set(idx, new Marker(pos, before, valid));
         }
