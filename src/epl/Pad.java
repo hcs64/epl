@@ -53,6 +53,7 @@ public class Pad {
     private long client_rev;
 
     private boolean read_only;
+    private String read_only_pad_id;
 
     private Changeset sent_changes;
     private Changeset pending_changes;
@@ -114,6 +115,7 @@ public class Pad {
         logger = null;
 
         read_only = true;
+        read_only_pad_id = null;
 
         collabroom_messages = new LinkedList<JSONObject> ();
 
@@ -233,8 +235,12 @@ public class Pad {
         return (pending_changes != null && !pending_changes.isIdentity());
     }
 
-    public synchronized boolean isReadOnly() {
+    public boolean isReadOnly() {
         return read_only;
+    }
+
+    public String getReadOnlyId() {
+        return read_only_pad_id;
     }
 
     private void handleIncomingMessage(JSONObject json) throws PadException {
@@ -299,7 +305,7 @@ public class Pad {
             user_id = client_vars.getString("userId");
 
             read_only = client_vars.getBoolean("readonly");
-            //read_only_pad_id = client_vars.getString("readOnlyId");
+            read_only_pad_id = client_vars.getString("readOnlyId");
             //global_pad_id = client_vars.getString("globalPadId");
 
             JSONObject collab_client_vars = client_vars.getJSONObject("collab_client_vars");
